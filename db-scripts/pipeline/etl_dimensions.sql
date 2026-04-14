@@ -87,8 +87,8 @@ SELECT
     src.num_telefone,
     addr.des_municipio,
     addr.des_estado,
-    md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)),
-    CURRENT_TIMESTAMP,
+    md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_estado, addr.des_municipio)),
+    src.dt_cadastro,
     NULL,
     TRUE
 FROM db.tb_clientes src
@@ -98,6 +98,7 @@ LEFT JOIN (
         des_municipio,
         des_estado
     FROM db.tb_enderecos
+    ORDER BY id_cliente, id_endereco DESC
 ) addr
     ON src.id_cliente = addr.id_cliente
 LEFT JOIN dw.dim_cliente dimen
@@ -113,7 +114,7 @@ WITH clientes_atualizados AS (
         src.num_telefone,
         addr.des_municipio,
         addr.des_estado,
-        md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)) AS novo_hash
+        md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_estado, addr.des_municipio)) AS novo_hash
     FROM db.tb_clientes src
     LEFT JOIN (
         SELECT DISTINCT ON (id_cliente)
@@ -121,12 +122,13 @@ WITH clientes_atualizados AS (
             des_municipio,
             des_estado
         FROM db.tb_enderecos
+        ORDER BY id_cliente, id_endereco DESC
     ) addr
         ON src.id_cliente = addr.id_cliente
     JOIN dw.dim_cliente dimen
         ON src.id_cliente = dimen.id_cliente
     WHERE dimen.flag_ativo = TRUE
-      AND md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)) <> dimen.chave_hash
+      AND md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_estado, addr.des_municipio)) <> dimen.chave_hash
 ),
 
 fechar_versao_antiga AS (
@@ -194,7 +196,7 @@ SELECT
     cat.des_categoria,
     src.vlr_unitario,
     md5(concat_ws('|', src.des_nome, src.des_produto, cat.des_categoria, src.vlr_unitario)),
-    CURRENT_DATE,
+    DATE '1900-01-01',
     NULL,
     TRUE
 FROM db.tb_produtos src
@@ -260,7 +262,7 @@ SELECT
     prod_alt.des_categoria,
     prod_alt.vlr_unitario,
     prod_alt.novo_hash,
-    CURRENT_DATE,
+    CURRENT_TIMESTAMP,
     NULL,
     TRUE
 FROM produtos_atualizados prod_alt

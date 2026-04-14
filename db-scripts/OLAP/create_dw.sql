@@ -133,7 +133,6 @@ CREATE TABLE dw.fato_vendas (
 
     quantidade INTEGER NOT NULL,
     preco_base NUMERIC(10,2),
-    preco_final NUMERIC(10,2),
     valor_bruto NUMERIC(10,2),
     valor_desconto NUMERIC(10,2),
     valor_liquido NUMERIC(10,2),
