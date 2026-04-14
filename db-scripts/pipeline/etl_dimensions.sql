@@ -69,8 +69,11 @@ BEGIN;
 INSERT INTO dw.dim_cliente (
     id_cliente,
     nome_cliente,
+    cpf,
     email,
+    telefone,
     municipio,
+    estado,
     chave_hash,
     data_inicio,
     data_fim,
@@ -79,9 +82,12 @@ INSERT INTO dw.dim_cliente (
 SELECT 
     src.id_cliente,
     src.des_nome,
+    src.num_cpf,
     src.des_email,
+    src.num_telefone,
     addr.des_municipio,
-    md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)),
+    addr.des_estado,
+    md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)),
     CURRENT_TIMESTAMP,
     NULL,
     TRUE
@@ -89,7 +95,8 @@ FROM db.tb_clientes src
 LEFT JOIN (
     SELECT DISTINCT ON (id_cliente)
         id_cliente,
-        des_municipio
+        des_municipio,
+        des_estado
     FROM db.tb_enderecos
 ) addr
     ON src.id_cliente = addr.id_cliente
@@ -101,21 +108,25 @@ WITH clientes_atualizados AS (
     SELECT 
         src.id_cliente,
         src.des_nome,
+        src.num_cpf,
         src.des_email,
+        src.num_telefone,
         addr.des_municipio,
-        md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)) AS novo_hash
+        addr.des_estado,
+        md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)) AS novo_hash
     FROM db.tb_clientes src
     LEFT JOIN (
         SELECT DISTINCT ON (id_cliente)
             id_cliente,
-            des_municipio
+            des_municipio,
+            des_estado
         FROM db.tb_enderecos
     ) addr
         ON src.id_cliente = addr.id_cliente
     JOIN dw.dim_cliente dimen
         ON src.id_cliente = dimen.id_cliente
     WHERE dimen.flag_ativo = TRUE
-      AND md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)) <> dimen.chave_hash
+      AND md5(concat_ws('|', src.des_nome, src.des_email, src.num_telefone, addr.des_municipio)) <> dimen.chave_hash
 ),
 
 fechar_versao_antiga AS (
@@ -132,8 +143,11 @@ fechar_versao_antiga AS (
 INSERT INTO dw.dim_cliente (
     id_cliente,
     nome_cliente,
+    cpf,
     email,
+    telefone,
     municipio,
+    estado,
     chave_hash,
     data_inicio,
     data_fim,
@@ -142,8 +156,11 @@ INSERT INTO dw.dim_cliente (
 SELECT 
     cli_alt.id_cliente,
     cli_alt.des_nome,
+    cli_alt.num_cpf,
     cli_alt.des_email,
+    cli_alt.num_telefone,
     cli_alt.des_municipio,
+    cli_alt.des_estado,
     cli_alt.novo_hash,
     CURRENT_TIMESTAMP,
     NULL,
