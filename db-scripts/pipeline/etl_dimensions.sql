@@ -4,7 +4,7 @@ INSERT INTO dw.dim_data
 (sk_data, data_completa, 
 dia, mes, ano, trimestre, semestre, 
 nome_mes, dia_semana, final_semana) 
-SELECT -1, DATE '1900-01-01', 1, 1, 1900, 1, 1, 'N/A', 'N/A', FALSE 
+SELECT -1, DATE '1900-01-01', 1, 1, 1900, 1, 1, 'January', 'Monday', FALSE 
 WHERE NOT EXISTS (SELECT 1 FROM dw.dim_data WHERE sk_data = -1);
 
 -- dummy produto
@@ -12,8 +12,8 @@ INSERT INTO dw.dim_produto
 (sk_produto, id_produto, nome_produto, 
 descricao_produto, categoria, valor_unitario, 
 data_inicio, data_fim, flag_ativo) 
-SELECT -1, -1, 'Produto Não Informado', 'N/A', 'N/A', 0.0, DATE '1900-01-01', NULL, 
-TRUE WHERE NOT EXISTS (SELECT 1 FROM dw.dim_produto WHERE sk_produto = -1);
+SELECT -1, -1, 'Produto Não Informado', 'N/A', 'N/A', 0.0, DATE '1900-01-01', NULL, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM dw.dim_produto WHERE sk_produto = -1);
 
 -- dummy cliente
 INSERT INTO dw.dim_cliente 
@@ -21,8 +21,8 @@ INSERT INTO dw.dim_cliente
 nome_cliente, cpf, email, 
 telefone, municipio, estado, 
 data_inicio, data_fim, flag_ativo) 
-SELECT -1, md5('dummy_cliente'), -1, 'Cliente Não Informado', '00000000000', 'N/A', 'N/A', 'N/A', 'NA', DATE '1900-01-01', NULL, 
-TRUE WHERE NOT EXISTS (SELECT 1 FROM dw.dim_cliente WHERE sk_cliente = -1);
+SELECT -1, md5('dummy_cliente'), -1, 'Cliente Não Informado', '00000000000', 'N/A', 'N/A', 'N/A', 'NA', DATE '1900-01-01', NULL, TRUE 
+WHERE NOT EXISTS (SELECT 1 FROM dw.dim_cliente WHERE sk_cliente = -1);
 
 -- dummy promotion
 INSERT INTO dw.dim_promocao 
@@ -65,42 +65,59 @@ ON dw.dim_status_pedido (status_pedido);
 -- DIM CLIENTE - INICIO
 
 BEGIN;
--- Inserir novos dados
+
 INSERT INTO dw.dim_cliente (
-    id_cliente, nome, email, cidade,
+    id_cliente,
+    nome_cliente,
+    email,
+    municipio,
     chave_hash,
-    data_inicio, data_fim, flag_ativo
+    data_inicio,
+    data_fim,
+    flag_ativo
 )
 SELECT 
     src.id_cliente,
-    src.nome,
-    src.email,
-    src.cidade,
-    md5(concat_ws('|', src.nome, src.email, src.cidade)) AS chave_hash,
-    CURRENT_TIMESTAMP, -- data_inicio
-    NULL, -- data_fim
-    TRUE -- flag_ativo
-FROM db.clientes src
+    src.des_nome,
+    src.des_email,
+    addr.des_municipio,
+    md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)),
+    CURRENT_TIMESTAMP,
+    NULL,
+    TRUE
+FROM db.tb_clientes src
+LEFT JOIN (
+    SELECT DISTINCT ON (id_cliente)
+        id_cliente,
+        des_municipio
+    FROM db.tb_enderecos
+) addr
+    ON src.id_cliente = addr.id_cliente
 LEFT JOIN dw.dim_cliente dimen
     ON dimen.id_cliente = src.id_cliente
 WHERE dimen.id_cliente IS NULL;
 
-- detectar dados de clientes alterados pela chave hash
 WITH clientes_atualizados AS (
     SELECT 
         src.id_cliente,
-        src.nome,
-        src.email,
-        src.cidade,
-        md5(concat_ws('|', src.nome, src.email, src.cidade)) AS novo_hash
+        src.des_nome,
+        src.des_email,
+        addr.des_municipio,
+        md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)) AS novo_hash
     FROM db.tb_clientes src
+    LEFT JOIN (
+        SELECT DISTINCT ON (id_cliente)
+            id_cliente,
+            des_municipio
+        FROM db.tb_enderecos
+    ) addr
+        ON src.id_cliente = addr.id_cliente
     JOIN dw.dim_cliente dimen
         ON src.id_cliente = dimen.id_cliente
     WHERE dimen.flag_ativo = TRUE
-      AND novo_hash <> dimen.chave_hash
+      AND md5(concat_ws('|', src.des_nome, src.des_email, addr.des_municipio)) <> dimen.chave_hash
 ),
 
--- fechar o cliente que estava ativo
 fechar_versao_antiga AS (
     UPDATE dw.dim_cliente dimen
     SET 
@@ -112,17 +129,21 @@ fechar_versao_antiga AS (
     RETURNING dimen.id_cliente
 )
 
--- inserir nova versao com dados atualizados
 INSERT INTO dw.dim_cliente (
-    id_cliente, nome, email, cidade,
+    id_cliente,
+    nome_cliente,
+    email,
+    municipio,
     chave_hash,
-    data_inicio, data_fim, flag_ativo
+    data_inicio,
+    data_fim,
+    flag_ativo
 )
 SELECT 
     cli_alt.id_cliente,
-    cli_alt.nome,
-    cli_alt.email,
-    cli_alt.cidade,
+    cli_alt.des_nome,
+    cli_alt.des_email,
+    cli_alt.des_municipio,
     cli_alt.novo_hash,
     CURRENT_TIMESTAMP,
     NULL,
@@ -131,52 +152,68 @@ FROM clientes_atualizados cli_alt
 JOIN fechar_versao_antiga fva
     ON cli_alt.id_cliente = fva.id_cliente;
 
--- DIM CLIENTE - FINAL
 COMMIT;
 
 -- =========================|Tabela Dim Produto|============================
 -- DIM PRODUTO - INICIO
 
 BEGIN;
--- Inserir novos dados
+
 INSERT INTO dw.dim_produto (
-    id_produto, nome_produto, descricao_produto,
-    categoria, valor_unitario, chave_hash,
-    data_inicio, data_fim, flag_ativo
+    id_produto,
+    nome_produto,
+    descricao_produto,
+    categoria,
+    valor_unitario,
+    chave_hash,
+    data_inicio,
+    data_fim,
+    flag_ativo
 )
 SELECT 
     src.id_produto,
-    src.nome_produto,
-    src.descricao_produto,
-    src.categoria,
-    src.valor_unitario,
-    md5(concat_ws('|', src.nome_produto, src.descricao_produto, src.categoria, src.valor_unitario)) AS chave_hash,
+    src.des_nome,
+    src.des_produto,
+    cat.des_categoria,
+    src.vlr_unitario,
+    md5(concat_ws('|', src.des_nome, src.des_produto, cat.des_categoria, src.vlr_unitario)),
     CURRENT_DATE,
     NULL,
     TRUE
-FROM db.produtos src
+FROM db.tb_produtos src
+LEFT JOIN (
+    SELECT DISTINCT ON (id_categoria)
+        id_categoria,
+        des_categoria
+    FROM db.tb_categoria
+) cat
+    ON src.id_categoria = cat.id_categoria
 LEFT JOIN dw.dim_produto dimen
     ON dimen.id_produto = src.id_produto
 WHERE dimen.id_produto IS NULL;
 
-- detectar dados de produtos alterados pela chave hash
 WITH produtos_atualizados AS (
-(
     SELECT 
         src.id_produto,
-        src.nome_produto,
-        src.descricao_produto,
-        src.categoria,
-        src.valor_unitario,
-        md5(concat_ws('|', src.nome_produto, src.descricao_produto, src.categoria, src.valor_unitario)) AS novo_hash
-    FROM db.produtos src
+        src.des_nome,
+        src.des_produto,
+        cat.des_categoria,
+        src.vlr_unitario,
+        md5(concat_ws('|', src.des_nome, src.des_produto, cat.des_categoria, src.vlr_unitario)) AS novo_hash
+    FROM db.tb_produtos src
+    LEFT JOIN (
+        SELECT DISTINCT ON (id_categoria)
+            id_categoria,
+            des_categoria
+        FROM db.tb_categoria
+    ) cat
+        ON src.id_categoria = cat.id_categoria
     JOIN dw.dim_produto dimen
         ON src.id_produto = dimen.id_produto
     WHERE dimen.flag_ativo = TRUE
-      AND novo_hash <> dimen.hash_dados
+      AND md5(concat_ws('|', src.des_nome, src.des_produto, cat.des_categoria, src.vlr_unitario)) <> dimen.chave_hash
 ),
 
--- fechar o produto que estava ativo
 fechar_versao_antiga AS (
     UPDATE dw.dim_produto dimen
     SET 
@@ -188,18 +225,23 @@ fechar_versao_antiga AS (
     RETURNING dimen.id_produto
 )
 
--- inserir nova versao com dados atualizados
 INSERT INTO dw.dim_produto (
-    id_produto, nome_produto, descricao_produto,
-    categoria, valor_unitario, chave_hash,
-    data_inicio, data_fim, flag_ativo
+    id_produto,
+    nome_produto,
+    descricao_produto,
+    categoria,
+    valor_unitario,
+    chave_hash,
+    data_inicio,
+    data_fim,
+    flag_ativo
 )
 SELECT 
     prod_alt.id_produto,
-    prod_alt.nome_produto,
-    prod_alt.descricao_produto,
-    prod_alt.categoria,
-    prod_alt.valor_unitario,
+    prod_alt.des_nome,
+    prod_alt.des_produto,
+    prod_alt.des_categoria,
+    prod_alt.vlr_unitario,
     prod_alt.novo_hash,
     CURRENT_DATE,
     NULL,
@@ -208,7 +250,6 @@ FROM produtos_atualizados prod_alt
 JOIN fechar_versao_antiga fva
     ON prod_alt.id_produto = fva.id_produto;
 
--- DIM PRODUTO - FINAL
 COMMIT;
 
 -- =========================|Tabela Dim Promocao|============================
@@ -216,23 +257,23 @@ COMMIT;
 BEGIN;
 
 MERGE INTO dw.dim_promocao AS dimen
-USING db.promocoes AS src
+USING db.tb_promocao AS src
 ON dimen.id_promocao = src.id_promocao
 
 -- sobrescreve apenas se mudou os dados
 WHEN MATCHED AND (
-    dimen.nome_promocao IS DISTINCT FROM src.nome_promocao OR
-    dimen.tipo_desconto IS DISTINCT FROM src.tipo_desconto OR
-    dimen.valor_desconto IS DISTINCT FROM src.valor_desconto OR
-    dimen.data_inicio IS DISTINCT FROM src.data_inicio OR
-    dimen.data_fim IS DISTINCT FROM src.data_fim
+    dimen.nome_promocao IS DISTINCT FROM src.des_nome OR
+    dimen.tipo_desconto IS DISTINCT FROM src.tp_desconto OR
+    dimen.valor_desconto IS DISTINCT FROM src.vlr_desconto OR
+    dimen.data_inicio IS DISTINCT FROM src.dt_inicio OR
+    dimen.data_fim IS DISTINCT FROM src.dt_fim
 ) THEN
     UPDATE SET
-        nome_promocao = src.nome_promocao,
-        tipo_desconto = src.tipo_desconto,
-        valor_desconto = src.valor_desconto,
-        data_inicio = src.data_inicio,
-        data_fim = src.data_fim
+        nome_promocao = src.des_nome,
+        tipo_desconto = src.tp_desconto,
+        valor_desconto = src.vlr_desconto,
+        data_inicio = src.dt_inicio,
+        data_fim = src.dt_fim
 
 -- insere os dados novos
 WHEN NOT MATCHED THEN
@@ -246,11 +287,11 @@ WHEN NOT MATCHED THEN
     )
     VALUES (
         src.id_promocao,
-        src.nome_promocao,
-        src.tipo_desconto,
-        src.valor_desconto,
-        src.data_inicio,
-        src.data_fim
+        src.des_nome,
+        src.tp_desconto,
+        src.vlr_desconto,
+        src.dt_inicio,
+        src.dt_fim
     );
 
 -- DIM PROMOCAO - FIM
@@ -261,14 +302,14 @@ BEGIN;
 
 MERGE INTO dw.dim_pagamento AS dimen
 USING (
-    SELECT DISTINCT tipo_pagamento
-    FROM db.tb_pagamentos
+    SELECT DISTINCT tp_pagamento
+    FROM db.tb_pagamento
 ) AS src
-ON dimen.tipo_pagamento = src.tipo_pagamento
+ON dimen.tipo_pagamento = src.tp_pagamento
 
 WHEN NOT MATCHED THEN
     INSERT (tipo_pagamento)
-    VALUES (src.tipo_pagamento);
+    VALUES (src.tp_pagamento);
 
 -- DIM Pagamento - FIM
 COMMIT;
@@ -278,14 +319,14 @@ BEGIN;
 
 MERGE INTO dw.dim_status_pedido AS dimen
 USING (
-    SELECT DISTINCT status_pedido
+    SELECT DISTINCT des_status
     FROM db.tb_pedidos
 ) AS src
-ON dimen.status_pedido = src.status_pedido
+ON dimen.status_pedido = src.des_status
 
 WHEN NOT MATCHED THEN
     INSERT (status_pedido)
-    VALUES (src.status_pedido);
+    VALUES (src.des_status);
 
 -- DIM Status - FIM
 COMMIT;
